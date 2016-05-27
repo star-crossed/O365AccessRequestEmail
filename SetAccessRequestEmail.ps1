@@ -1,27 +1,36 @@
-# replace these details (also consider using Get-Credential to enter password securely as script runs).. 
-$username = "REDACTED" 
-$password = "REDACTED" 
-$adminUrl = "https://REDACTED-admin.sharepoint.com"
+[CmdletBinding()]
+Param(
+    [Parameter(Mandatory=$true, HelpMessage="This is the email address to be invited.")]
+    [string]$Email,
+    
+    [Parameter(Mandatory=$true, HelpMessage="This is the URL for the SharePoint Online admin center.")]
+    [string]$AdminUrl,
 
-# email address we would like all requests on all sites to go to
-$email = "REDACTED"
+    [Parameter(Mandatory=$false, HelpMessage="This is the credentials used to connect to SharePoint Online.")]
+    [System.Management.Automation.PSCredential]$Credentials,
+    
+    [Parameter(Mandatory=$false, HelpMessage="This is the path to the DLLs for CSOM.")]
+    [string]$CSOMPath
+)
 
-$securePassword = ConvertTo-SecureString $Password -AsPlainText -Force 
-$spoCredentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($username, $securePassword) 
-$psCredentials = New-Object System.Management.Automation.PSCredential($username, $securePassword)
+Set-Strictmode -Version 1
 
-# the path here may need to change if you used e.g. C:\Lib.. 
-Add-Type -Path "C:\Users\pchoquette\Source\Repos\PnP-Sites-Core\Assemblies\16.1\Microsoft.SharePoint.Client.dll" 
-Add-Type -Path "C:\Users\pchoquette\Source\Repos\PnP-Sites-Core\Assemblies\16.1\Microsoft.SharePoint.Client.Runtime.dll" 
-# note that you might need some other references (depending on what your script does) for example:
-Add-Type -Path "C:\Users\pchoquette\Source\Repos\PnP-Sites-Core\Assemblies\16.1\Microsoft.SharePoint.Client.Taxonomy.dll" 
+If ($CSOMPath -eq $null -or $CSOMPath -eq "") { $CSOMPath = "." } 
+If ($Credentials -eq $null) {
+    $Credentials = Get-Credential
+}
+$spoCredentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($Credentials.UserName, $Credentials.Password)
 
-Connect-SPOService -Url $adminUrl -Credential $psCredentials
+Add-Type -Path "$CSOMPath\Microsoft.SharePoint.Client.dll" 
+Add-Type -Path "$CSOMPath\Microsoft.SharePoint.Client.Runtime.dll" 
+
+Connect-SPOService -Url $AdminUrl -Credential $Credentials
 
 Function Set-AccessRequestEmail {
     param (
         $webUrl = $(throw "Please provide a URL"),
-        $webCredential = $(throw "Please provide credentials")
+        $webCredential = $(throw "Please provide credentials"),
+        $webEmail = $(throw "Please provide an email address")
     )
 
     process {
@@ -39,7 +48,7 @@ Function Set-AccessRequestEmail {
                 $clientContext.ExecuteQuery()
 
                 Try {
-                    $web.RequestAccessEmail = $email
+                    $web.RequestAccessEmail = $webEmail
                     $web.Update()
                     $clientContext.ExecuteQuery()
                 } Catch {
@@ -47,7 +56,7 @@ Function Set-AccessRequestEmail {
                 }
 
                 foreach($subweb in $web.Webs) {
-                    Set-AccessRequestEmail -webUrl $subweb.Url -webCredential $webCredential
+                    Set-AccessRequestEmail -webUrl $subweb.Url -webCredential $webCredential -webEmail $webEmail
                 }
             } Catch {
                 Write-Warning $_.Exception.Message
@@ -57,5 +66,5 @@ Function Set-AccessRequestEmail {
 }
 
 Get-SPOSite | % {
-    Set-AccessRequestEmail -webUrl $_.Url -webCredential $spoCredentials
+    Set-AccessRequestEmail -webUrl $_.Url -webCredential $spoCredentials -webEmail $Email
 }
